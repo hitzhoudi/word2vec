@@ -143,6 +143,51 @@ function SkipGram:TrainStream()
     end
 end
 
+function SkipGram:TrainMemory()
+    local start = sys.clock()
+    for i = 1, #self.train_words do
+        self:TrainUnit(self.train_words[i], self.train_contexts[i])
+        if i % 100000 == 0 then
+            print(string.format("TrainMemory Cost %d", sys.clock() - start))
+        end
+    end
+end
+
+function SkipGram:LoadData()
+    local start = sys.clock()
+    local c = 0
+    local file = io.open(corpus, "r")
+    local center_word = torch.IntTensor(1)
+
+    self.train_words = {}
+    self.train_contexts = {}
+
+    for line in file:lines() do
+        local sentence = Split(line)
+        for i, word in ipairs(sentence) do
+            local word_idx = self.word2index[word]
+            if word_idx ~= nil then
+                center_word[1] = word_idx
+                local cur_window_size = torch.random(self.window_size)
+                for j = i - cur_window_size, i + cur_window_size do
+                    local context = sentence[j]
+                    if context ~= nil and j ~= i then
+                        local context_id = self.word2index[context]
+                        if context_id ~= nil then
+                            c = c + 1
+                            self.train_words[c] = center_word
+                            self.train_contexts[c] = self:GenerateContexts(context_id)
+                        end
+                        if c % 100000 == 0 then
+                            print(string.format("Cost %d", sys.clock() - start))
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 function SkipGram:normalize()
     local m = self.word_vector.weight:double()
     local m_norm = torch.zeros(m:size())
@@ -196,5 +241,7 @@ model = SkipGram()
 model:BuildVocabulary(corpus)
 model:BuildTable()
 model:ConstructModel()
-model:TrainStream()
+model:LoadData()
+model:TrainMemory()
+--model:TrainStream()
 model:PrintSimWords("china", 5)
