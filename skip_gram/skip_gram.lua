@@ -154,7 +154,7 @@ end
 
 function SkipGram:GetSimWords(w, k)
     if self.word_vector_norm == nil then
---        self.word_vector_norm = self:normalize()
+        self.word_vector_norm = self:normalize()
         local m = self.word_vector.weight:double()
         local m_norm = torch.zeros(m:size())
         for i = 1, m:size(1) do
@@ -163,7 +163,7 @@ function SkipGram:GetSimWords(w, k)
         self.word_vector_norm = m_norm
     end
     if type(w) == "string" then
-        if self.word2index(w) == nil then
+        if self.word2index[w] == nil then
             print(string.format("%s does not exit in Vocabulary", w))
         else
             w = self.word_vecs_norm[self.word2index[w]]
@@ -180,7 +180,10 @@ function SkipGram:GetSimWords(w, k)
 end
 
 function SkipGram:PrintSimWords(w, k)
-    r = self.GetSimWords(w, k)
+    r = self:GetSimWords(w, k)
+    if r == nil then
+        return
+    end
     for i = 1, k do
         print(string.format("%s, %f", r[i][1], r[i][2]))
     end
@@ -188,7 +191,7 @@ end
 
 end
 
-corpus = "./cankao/word2vec_torch/corpus.txt"
+corpus = "../corpus.txt"
 model = SkipGram()
 model:BuildVocabulary(corpus)
 model:BuildTable()
