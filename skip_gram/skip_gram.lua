@@ -211,7 +211,7 @@ function SkipGram:GetSimWords(w, k)
         if self.word2index[w] == nil then
             print(string.format("%s does not exit in Vocabulary", w))
         else
-            w = self.word_vecs_norm[self.word2index[w]]
+            w = self.word_vector_norm[self.word2index[w]]
             local similary = torch.mv(self.word_vector_norm, w)
             similary, idx = torch.sort(similary, 1, true)
             local results = {}
@@ -236,7 +236,7 @@ end
 
 end
 
-corpus = "../corpus.txt"
+corpus = "../test.txt"
 model = SkipGram()
 model:BuildVocabulary(corpus)
 model:BuildTable()
@@ -244,4 +244,5 @@ model:ConstructModel()
 model:LoadData()
 model:TrainMemory()
 --model:TrainStream()
-model:PrintSimWords("china", 5)
+torch.save("train.model", model.word_vector)
+model:PrintSimWords("people", 5)
