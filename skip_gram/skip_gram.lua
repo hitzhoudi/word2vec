@@ -1,21 +1,27 @@
 require("sys")
 require("nn")
 
-do
 local SkipGram = torch.class("SkipGram")
 
 function SkipGram:__init()
+    self.corpus = config.corpus
+    self.window_size = config.window_size
+    self.neg_sample_number = config.neg_sample_number
+    self.learning_rate = config.learning_rate
+    self.dim = config.dim
+    self.stream = config.stream
+    self.epochs = config.epochs
+    self.save_epochs = config.save_epochs
+    self.model_dir = config.model_dir
+
     self.vocab = {}
-    self.dim = 100
     self.word2index = {}
     self.index2word = {}
     self.table_size = 1e7
     self.table = {}
     self.unigram_model_power = 0.75
-    self.learning_rate = 0.025
-    self.window_size = 5
-    self.neg_sample_number = 5
-    self.label = torch.zeros(1 + self.neg_sample_number); self.label[1] = 1
+    self.label = torch.zeros(1 + self.neg_sample_number);
+    self.label[1] = 1
 
 end
 
@@ -27,9 +33,9 @@ function Split(line, sep)
     return t
 end
 
-function SkipGram:BuildVocabulary(corpus)
+function SkipGram:BuildVocabulary()
     local start = sys.clock()
-    local file = io.open(corpus, "r")
+    local file = io.open(self.corpus, "r")
     self.vocab = {}
     for line in file:lines() do
         for _, word in ipairs(Split(line)) do
@@ -115,7 +121,7 @@ end
 function SkipGram:TrainStream()
     local start = sys.clock()
     local c = 0
-    local file = io.open(corpus, "r")
+    local file = io.open(self.corpus, "r")
     local center_word = torch.IntTensor(1)
     for line in file:lines() do
         local sentence = Split(line)
@@ -156,7 +162,7 @@ end
 function SkipGram:LoadData()
     local start = sys.clock()
     local c = 0
-    local file = io.open(corpus, "r")
+    local file = io.open(self.corpus, "r")
     local center_word = torch.IntTensor(1)
 
     self.train_words = {}
@@ -234,15 +240,18 @@ function SkipGram:PrintSimWords(w, k)
     end
 end
 
+function SkipGram:Train()
+    for i = 1, self.epochs do
+        if self.stream == 1 then
+            self:TrainStream()
+        else
+            model:LoadData()
+            self:TrainMemory()
+        end
+        if (i % self.save_epochs == 0) then
+            torch.save(self.model_dir + "/epoch_" + tostring(i), model.word_vector)
+        end
+    end
+    torch.save(self.model_dir + "/epoch_" + tostring(self.epochs), model.word_vector)
 end
 
-corpus = "../test.txt"
-model = SkipGram()
-model:BuildVocabulary(corpus)
-model:BuildTable()
-model:ConstructModel()
-model:LoadData()
-model:TrainMemory()
---model:TrainStream()
-torch.save("train.model", model.word_vector)
-model:PrintSimWords("people", 5)
