@@ -42,6 +42,6 @@ if config.train == 1 then
     model:Train()
 end
 if config.test == 1 then
-    model:PrintSimWords("dry", 5)
+    model:PrintSimWords("france", 5)
 end
 

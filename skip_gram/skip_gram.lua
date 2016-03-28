@@ -233,7 +233,6 @@ end
 
 function SkipGram:PrintSimWords(w, k)
     if self.word_vector == nil then
-        print(self.model_path)
         self.word_vector = torch.load(self.model_path)
     end
     r = self:GetSimWords(w, k)
