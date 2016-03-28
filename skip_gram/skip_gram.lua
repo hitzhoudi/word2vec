@@ -12,7 +12,8 @@ function SkipGram:__init()
     self.stream = config.stream
     self.epochs = config.epochs
     self.save_epochs = config.save_epochs
-    self.model_dir = config.model_dir
+    self.model_path = config.model_path
+    self.min_frequency = config.min_frequency
 
     self.vocab = {}
     self.word2index = {}
@@ -49,7 +50,7 @@ function SkipGram:BuildVocabulary()
     file.close()
     self.word2index = {}; self.index2word = {}
     for word, count in pairs(self.vocab) do
-        if count >= 10 then
+        if count >= self.min_frequency then
             self.index2word[#self.index2word + 1] = word;
             self.word2index[word] = #self.index2word;
         else
@@ -231,16 +232,22 @@ function SkipGram:GetSimWords(w, k)
 end
 
 function SkipGram:PrintSimWords(w, k)
+    if self.word_vector == nil then
+        print(self.model_path)
+        self.word_vector = torch.load(self.model_path)
+    end
     r = self:GetSimWords(w, k)
     if r == nil then
         return
     end
+    print(r)
     for i = 1, k do
         print(string.format("%s, %f", r[i][1], r[i][2]))
     end
 end
 
 function SkipGram:Train()
+    os.execute("mkdir " .. self.model_path)
     for i = 1, self.epochs do
         if self.stream == 1 then
             self:TrainStream()
@@ -249,9 +256,10 @@ function SkipGram:Train()
             self:TrainMemory()
         end
         if (i % self.save_epochs == 0) then
-            torch.save(self.model_dir + "/epoch_" + tostring(i), model.word_vector)
+            torch.save(self.model_path .. "/epoch_" .. tostring(i), model.word_vector)
         end
+        print(string.format("%d epoch(s) is done", i))
     end
-    torch.save(self.model_dir + "/epoch_" + tostring(self.epochs), model.word_vector)
+    torch.save(self.model_path .. "/epoch_" .. tostring(self.epochs), model.word_vector)
 end
 
