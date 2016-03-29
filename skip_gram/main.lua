@@ -9,10 +9,9 @@ config.dim = 100                        -- dimensionality of word embedding
 config.stream = 1                       -- stream mode
 config.epochs = 10                      -- number of epochs
 config.save_epochs = 1                  -- save rate
-config.model_path = "./model"           -- during training it is a direct or path
+config.model_dir = "./model"            -- model direct
 config.min_frequency = 10               -- minimum frequency
-config.train = 0                        -- train
-config.test = 0                         -- test
+config.mode = "train"                   -- mode: train or test
 
 cmd = torch.CmdLine()
 cmd:option("-corpus", config.corpus)
@@ -23,10 +22,9 @@ cmd:option("-dim", config.dim)
 cmd:option("-stream", config.stream)
 cmd:option("-epochs", config.epochs)
 cmd:option("-save_epochs", config.save_epochs)
-cmd:option("-model_path", config.model_path)
+cmd:option("-model_dir", config.model_dir)
 cmd:option("-min_frequency", config.min_frequency)
-cmd:option("-train", config.train)
-cmd:option("-test", config.test)
+cmd:option("-mode", config.mode)
 
 params = cmd:parse(arg)
 
@@ -35,13 +33,13 @@ for param, value in pairs(params) do
 end
 
 model = SkipGram()
-if config.train == 1 then
+if config.mode == "train" then
     model:BuildVocabulary()
     model:BuildTable()
     model:ConstructModel()
     model:Train()
+elseif  config.mode == "test" then
+    model:PrintSimWords("free", 5)
+else
+    print("Error: mode should be train or test")
 end
-if config.test == 1 then
-    model:PrintSimWords("france", 5)
-end
-

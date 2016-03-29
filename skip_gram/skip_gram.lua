@@ -12,7 +12,7 @@ function SkipGram:__init()
     self.stream = config.stream
     self.epochs = config.epochs
     self.save_epochs = config.save_epochs
-    self.model_path = config.model_path
+    self.model_dir = config.model_dir
     self.min_frequency = config.min_frequency
 
     self.vocab = {}
@@ -141,7 +141,7 @@ function SkipGram:TrainStream()
                         end
                         c = c + 1
                         if c % 100000 == 0 then
-                            print(string.format("Cost %d", sys.clock() - start))
+                            print(string.format("TrainStream Cost %d", sys.clock() - start))
                         end
                     end
                 end
@@ -207,12 +207,6 @@ end
 function SkipGram:GetSimWords(w, k)
     if self.word_vector_norm == nil then
         self.word_vector_norm = self:normalize()
-        local m = self.word_vector.weight:double()
-        local m_norm = torch.zeros(m:size())
-        for i = 1, m:size(1) do
-            m_norm[i] = m[i] / torch.norm(m[i])
-        end
-        self.word_vector_norm = m_norm
     end
     if type(w) == "string" then
         if self.word2index[w] == nil then
@@ -223,7 +217,7 @@ function SkipGram:GetSimWords(w, k)
             similary, idx = torch.sort(similary, 1, true)
             local results = {}
             for i = 1, k do
-                results[i] = {self.index2word[idx], similary[i]}
+                results[i] = {self.index2word[idx[i]], similary[i]}
             end
             return results
         end
@@ -232,21 +226,25 @@ function SkipGram:GetSimWords(w, k)
 end
 
 function SkipGram:PrintSimWords(w, k)
-    if self.word_vector == nil then
-        self.word_vector = torch.load(self.model_path)
+    if self.skip_gram == nil then
+        self.skip_gram = torch.load(self.model_dir .. "/skip_gram")
+        self.word_vector = self.skip_gram.modules[1].modules[1]
+        self.context_vector = self.skip_gram.modules[1].modules[2]
+        self.word2index = torch.load(self.model_dir .. "/word2index")
+        self.index2word = torch.load(self.model_dir .. "/index2word")
+        print("Model SkipGram is loaded")
     end
     r = self:GetSimWords(w, k)
     if r == nil then
         return
     end
-    print(r)
     for i = 1, k do
         print(string.format("%s, %f", r[i][1], r[i][2]))
     end
 end
 
 function SkipGram:Train()
-    os.execute("mkdir " .. self.model_path)
+    os.execute("mkdir " .. self.model_dir)
     for i = 1, self.epochs do
         if self.stream == 1 then
             self:TrainStream()
@@ -254,11 +252,15 @@ function SkipGram:Train()
             model:LoadData()
             self:TrainMemory()
         end
+        if (i == 1) then
+            torch.save(self.model_dir .. "/word2index", self.word2index)
+            torch.save(self.model_dir .. "/index2word", self.index2word)
+        end
         if (i % self.save_epochs == 0) then
-            torch.save(self.model_path .. "/epoch_" .. tostring(i), model.word_vector)
+            torch.save(self.model_dir .. "/skip_gram_epoch_" .. tostring(i), self.skip_gram)
         end
         print(string.format("%d epoch(s) is done", i))
     end
-    torch.save(self.model_path .. "/epoch_" .. tostring(self.epochs), model.word_vector)
+    torch.save(self.model_dir .. "/epoch_" .. tostring(self.epochs), self.skip_gram)
 end
 
