@@ -120,16 +120,18 @@ local function ConstructModel()
     skip_gram:add(nn.MM(false, true))
     skip_gram:add(nn.Sigmoid())
     local criterion = nn.BCECriterion()
+    -- TODO
 
     return skip_gram, criterion
-    -- TODO
 end
 
 if config.mode == "train" then
     BuildVocabulary()
     BuildTable()
     local skip_gram, criterion = ConstructModel()
-    print(parameters["table_size"])
+    local threadedTrain = require 'threadedtrain'
+    parameters["thread_num"] = 10
+    threadedTrain(skip_gram, criterion, parameters)
 end
 
 

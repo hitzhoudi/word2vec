@@ -4,9 +4,6 @@ local nthread = 4
 local njob = 10
 local msg = "hello from a satellite thread"
 
-local t = torch.IntTensor(5)
-t[1] = 3
-
 local pool = threads.Threads(
    nthread,
    function(threadid)
@@ -15,11 +12,13 @@ local pool = threads.Threads(
    end,
 
    function(threadid)
-      local m = t
-
+      local doct = "hello world"
+      local words = doct
       function g(threadid)
-         print('hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh ' .. threadid)
-         print('g(threadid): ' .. m[1])
+         print('g(threadid): ' .. threadid)
+         doct = doct .. doct
+         print('doct: ' .. doct)
+         return words
       end
    end
 
@@ -33,13 +32,11 @@ for i=1,njob do
    pool:addjob(
       function()
          print(string.format('%s -- thread ID is %x', gmsg, __threadid))
-         g(__threadid)
-         return __threadid
+         return g(__threadid)
       end,
 
-      function(id)
-         t[1] = id
-         print(string.format("task %d finished (ran on thread ID %x), t[1] == %d", i, id, t[1]))
+      function(words)
+         print("words from g(): " .. words)
          jobdone = jobdone + 1
       end
    )
