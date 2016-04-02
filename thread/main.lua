@@ -50,6 +50,7 @@ parameters["index2word"] = {}
 parameters["table_size"] = 1e7
 parameters["table"] = {}
 parameters["unigram_model_power"] = 0.75
+parameters["mini_batch"] = 5
 parameters["label"] = torch.zeros(1 + parameters["neg_sample_number"]);
 parameters["label"][1] = 1
 
