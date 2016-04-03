@@ -21,6 +21,8 @@ local function ThreadedTrain(module, criterion, word2index, table, table_size, p
                 local gap = criterion:forward(output, label)
                 module:zeroGradParameters()
                 module:backward(data, criterion:backward(output, label))
+                parameters["learning_rate"]
+                    = math.max(parameters["min_learning_rate"], parameters["learning_rate"] + parameters["decay"])
                 weights[1][data[1][1]]:add(-parameters["learning_rate"], dweights[1][data[1][1]])
                 for i = 1, parameters["neg_sample_number"] do
                     weights[2][data[2][i]]:add(-parameters["learning_rate"], dweights[2][data[2][i]])
@@ -55,8 +57,8 @@ local function ThreadedTrain(module, criterion, word2index, table, table_size, p
 
     local start = sys.clock()
     local weights = module:parameters()
-    local file = io.open(parameters["corpus"], "r")
     for iter = 1, parameters["epochs"] do
+        local file = io.open(parameters["corpus"], "r")
         local c = 0
         local t_err = 0
         for line in file:lines() do
@@ -93,6 +95,7 @@ local function ThreadedTrain(module, criterion, word2index, table, table_size, p
                 end
             end
         end
+        file.close()
 
         if (iter == 1) then
             torch.save(parameters["model_dir"] .. "/word2index", parameters["word2index"])
@@ -100,7 +103,7 @@ local function ThreadedTrain(module, criterion, word2index, table, table_size, p
         end
  
         if (iter % parameters["save_epochs"] == 0) then
-            torch.save(parameters["model_dir"] .. "/skip_gram_epoch_" .. tostring(iter), self.module)
+            torch.save(parameters["model_dir"] .. "/skip_gram_epoch_" .. tostring(iter), module)
         end
 
         threads:synchronize()

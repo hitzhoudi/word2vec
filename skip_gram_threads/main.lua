@@ -5,6 +5,7 @@ config.corpus = "../data/corpus.txt"    -- input file
 config.window_size = 5                  -- maximum window size
 config.neg_sample_number = 5            -- maximum negative sample number
 config.learning_rate = 0.025            -- maximum learning rate
+config.min_learning_rate = 0.001        -- minimum learning rate
 config.dim = 100                        -- dimensionality of word embedding
 config.epochs = 10                      -- number of epochs
 config.save_epochs = 1                  -- save rate
@@ -18,6 +19,7 @@ cmd:option("-corpus", config.corpus)
 cmd:option("-window_size", config.window_size)
 cmd:option("-neg_sample_number", config.neg_sample_number)
 cmd:option("-learning_rate", config.learning_rate)
+cmd:option("-min_learning_rate", config.min_learning_rate)
 cmd:option("-dim", config.dim)
 cmd:option("-epochs", config.epochs)
 cmd:option("-save_epochs", config.save_epochs)
@@ -37,6 +39,7 @@ parameters["corpus"] = config.corpus
 parameters["window_size"] = config.window_size
 parameters["neg_sample_number"] = config.neg_sample_number
 parameters["learning_rate"] = config.learning_rate
+parameters["min_learning_rate"] = config.min_learning_rate
 parameters["dim"] = config.dim
 parameters["epochs"] = config.epochs
 parameters["save_epochs"] = config.save_epochs
@@ -63,8 +66,10 @@ local function BuildVocabulary(corpus_path, min_frequency)
     local start = sys.clock()
     local file = io.open(corpus_path, "r")
     local vocab = {}
+    local total_count = 0
     for line in file:lines() do
         for _, word in ipairs(Split(line)) do
+            total_count = total_count + 1
             if vocab[word] == nil then
                 vocab[word] = 1
             else
@@ -86,7 +91,7 @@ local function BuildVocabulary(corpus_path, min_frequency)
     local vocab_size = #index2word
     print(string.format("BuildVacabulary costs: %d second(s)", sys.clock() - start))
     print(string.format("Vocabulary size is %d", vocab_size))
-    return vocab, vocab_size, word2index, index2word
+    return vocab, vocab_size, word2index, index2word, total_count
 end
 
 local function BuildTable(vocab, word2index, unigram_model_power, table_size)
@@ -123,16 +128,17 @@ local function ConstructModel(vocab_size, dim)
     skip_gram:add(nn.MM(false, true))
     skip_gram:add(nn.Sigmoid())
     local criterion = nn.BCECriterion()
-    -- TODO
 
     return skip_gram, criterion
 end
 
 if config.mode == "train" then
-    local vocab, vocab_size, word2index, index2word
+    local vocab, vocab_size, word2index, index2word, total_count
         = BuildVocabulary(parameters["corpus"], parameters["min_frequency"])
     local table, table_size
         = BuildTable(vocab, word2index, parameters["unigram_model_power"], parameters["table_size"])
+    parameters["decay"]
+        = (parameters["min_learning_rate"] - parameters["learning_rate"]) / total_count / parameters["window_size"]
     local skip_gram, criterion = ConstructModel(vocab_size, parameters["dim"])
     local ThreadedTrain = require 'threadedtrain'
     ThreadedTrain(skip_gram, criterion, word2index, table, table_size, parameters)
