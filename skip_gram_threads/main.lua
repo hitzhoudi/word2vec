@@ -10,7 +10,7 @@ config.epochs = 10                      -- number of epochs
 config.save_epochs = 1                  -- save rate
 config.model_dir = "./model"            -- model direct
 config.min_frequency = 10               -- minimum frequency
-config.thread_number = 10               -- thread number
+config.thread_number = 2                -- thread number
 config.mode = "train"                   -- mode: train or test
 
 cmd = torch.CmdLine()
