@@ -1,6 +1,6 @@
 local Threads = require 'threads'
 
-local function ThreadedTrain(module, criterion, parameters)
+local function ThreadedTrain(module, criterion, word2index, table, table_size, parameters)
     Threads.serialization('threads.sharedserialize')
     local threads = Threads(
         parameters["thread_num"],
@@ -12,13 +12,14 @@ local function ThreadedTrain(module, criterion, parameters)
             local module = module:clone('weight', 'bais')
             local weights, dweights = module:parameters()
             local criterion = criterion:clone()
-            local label = parameters["label"]
+            local label = torch.zeros(1 + parameters["neg_sample_number"])
+            label[1] = 1
 
             function pass(data)
                 local output = module:forward(data)
-                local gap = criterion:forward(output, parameters["label"])
+                local gap = criterion:forward(output, label)
                 module:zeroGradParameters()
-                module:backward(data, criterion:backward(output, parameters["label"]))
+                module:backward(data, criterion:backward(output, label))
                 weights[1][data[1][1]]:add(-parameters["learning_rate"], dweights[1][data[1][1]])
                 for i = 1, parameters["neg_sample_number"] do
                     weights[2][data[2][i]]:add(-parameters["learning_rate"], dweights[2][data[2][i]])
@@ -42,7 +43,7 @@ local function ThreadedTrain(module, criterion, parameters)
         contexts[1] = pos_context_id
         local i = 0
         while i < parameters["neg_sample_number"] do
-            local neg_context_id = parameters["table"][torch.random(parameters["table_size"])]
+            local neg_context_id = table[torch.random(table_size)]
             if neg_context_id ~= pos_context_id then
                 contexts[i + 2] = neg_context_id
                 i = i + 1
@@ -60,7 +61,7 @@ local function ThreadedTrain(module, criterion, parameters)
         for line in file:lines() do
             local sentence = Split(line)
             for i, word in ipairs(sentence) do
-                local word_idx = parameters["word2index"][word]
+                local word_idx = word2index[word]
                 if word_idx ~= nil then
                     local center_word = torch.IntTensor(1)
                     center_word[1] = word_idx
@@ -68,19 +69,20 @@ local function ThreadedTrain(module, criterion, parameters)
                     for j = i - cur_window_size, i + cur_window_size do
                         local context = sentence[j]
                         if context ~= nil and j ~= i then
-                            local context_id = parameters["word2index"][context]
+                            local context_id = word2index[context]
                             if context_id ~= nil then
                                 local contexts = GenerateContexts(context_id)
                                 threads:addjob(
                                     function()
                                         return pass({center_word, contexts})
                                     end,
-                                    function(gap)--, dweights, data)
+                                    function(gap)
                                         t_err = t_err + gap
                                         c = c + 1
                                         if (c % 100000 == 0) then
-                                            print(string.format("Epoch %d: Error Rate %f", iter, t_err / c))
-                                            print(sys.clock() - start)
+                                            print(string.format("Epoch[%d] Part[%d] AccumErrorRate[%f]", iter, c / 100000, t_err / c))
+                                            print(string.format("Epoch[%d] Part[%d] cost %d second(s)", iter, c / 100000, sys.clock() - start))
+                                            start = sys.clock()
                                         end
                                     end
                                 )
@@ -90,8 +92,17 @@ local function ThreadedTrain(module, criterion, parameters)
                 end
             end
         end
+
+        if (iter == 1) then
+            torch.save(parameters["model_dir"] .. "/word2index", parameters["word2index"])
+            torch.save(parameters["model_dir"] .. "/index2word", parameters["index2word"])
+        end
+ 
+        if (iter % parameters["save_epochs"] == 0) then
+            torch.save(parameters["model_dir"] .. "/skip_gram_epoch_" .. tostring(iter), self.module)
+        end
+
         threads:synchronize()
-        print(string.format("TrainStream Cost %d", sys.clock() - start))
     end
 
     threads:terminate()
