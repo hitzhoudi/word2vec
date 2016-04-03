@@ -1,7 +1,7 @@
 local Threads = require 'threads'
 
 local function ThreadedTrain(module, criterion, word2index, table, table_size, parameters)
-    os.execute("mkdir " .. self.model_dir)
+    os.execute("mkdir " .. parameters["model_dir"])
     Threads.serialization('threads.sharedserialize')
     local threads = Threads(
         parameters["thread_num"],
