@@ -39,7 +39,6 @@ local function BuildVocabulary(corpus_path, min_frequency)
     end
     local vocab_size = #index2word
     print(string.format("BuildVacabulary costs: %d second(s)", sys.clock() - start))
-    print(string.format("Vocabulary size is %d", vocab_size))
     return vocab, vocab_size, word2index, index2word, total_count
 end
 
@@ -146,6 +145,7 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                     -- The subsampling randomly discards frequent words while keeping the ranking same
                     local ran = (1 + math.sqrt(vocabulary[word] / (parameters["sample"] * total_count)))
                             * parameters["sample"] * total_count / vocabulary[word]
+                    print("ran " .. ran .. "vacabulary[word] " .. vocabulary[word])
                     if ran < math.random() then 
                         local center_word = torch.IntTensor(1)
                         center_word[1] = word_idx
@@ -162,18 +162,19 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                                         end,
                                         function(gap)
                                             t_err = t_err + gap
-                                            c = c + 1
-                                            if (c % 100000 == 0) then
-                                                print(string.format("Epoch[%d] Part[%d] AccumErrorRate[%f]", iter, c / 100000, t_err / c))
-                                                print(string.format("Epoch[%d] Part[%d] cost %d second(s)", iter, c / 100000, sys.clock() - start))
-                                                start = sys.clock()
-                                            end
                                         end
                                     )
                                 end
                             end
                         end
                     end
+                end
+                c = c + 1
+                if (c % 10000 == 0) then
+                    print(string.format(
+                        "Epoch[%d] Part[%d] AccumErrorRate[%f] LR[%f] Cost[%d second(s)]",
+                        iter, c / 100000, t_err / c, lr, sys.clock() - start))
+                    start = sys.clock()
                 end
             end
         end
@@ -189,6 +190,7 @@ end
 function SkipGram.Train()
     local vocab, vocab_size, word2index, index2word, total_count
         = BuildVocabulary(parameters["corpus"], parameters["min_frequency"])
+    print("Total Count:" .. total_count .. " Vocabulary Size:" .. vocab_size)
     os.execute("mkdir " .. parameters["model_dir"])
     torch.save(parameters["model_dir"] .. "/word2index", word2index)
     torch.save(parameters["model_dir"] .. "/index2word", index2word)

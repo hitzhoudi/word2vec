@@ -11,7 +11,7 @@ config.model_dir = "./model"            -- model direct
 config.min_frequency = 10               -- minimum frequency
 config.thread_number = 2                -- thread number
 config.mode = "train"                   -- mode: train or test
-config.sample = 1.0e-3
+config.sample = 1.0e-4
 
 cmd = torch.CmdLine()
 cmd:option("-corpus", config.corpus)
