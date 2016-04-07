@@ -79,8 +79,37 @@ local function ConstructModel(vocab_size, dim)
     return skip_gram, criterion
 end
 
-local function ThreadedTrain(module, criterion, vocabulary, word2index, table, table_size, total_count, parameters)
+local function ReadData(corpus_path)
+    local start = sys.clock()
+    local file = io.open(corpus_path, "r")
+    local data = {}
+    local total_count = 0
+    for line in file:lines() do
+        for _, word in ipairs(Split(line)) do
+            data[#data + 1] = word
+        end
+    end
+    file.close()
+    return data
+end
+
+local function ThreadedTrain(module, criterion, vocabulary, word2index, table, table_size, total_count, data, parameters)
     Threads.serialization('threads.sharedserialize')
+
+    local function GenerateContexts(wid, cid)
+        local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
+        contexts[1] = cid
+        local i = 0
+        while i < parameters["neg_sample_number"] do
+            local nid = table[torch.random(table_size)]
+            if nid ~= cid and nid ~= wid then
+                contexts[i + 2] = nid
+                i = i + 1
+            end
+        end
+        return contexts
+    end
+
     local threads = Threads(
         parameters["thread_num"],
         function()
@@ -93,97 +122,78 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
             local label = torch.zeros(1 + parameters["neg_sample_number"])
             label[1] = 1
 
-            function pass(data, learning_rate)
-                local output = module:forward(data)
-                local gap = criterion:forward(output, label)
-                module:zeroGradParameters()
-                module:backward(data, criterion:backward(output, label))
-                weights[1][data[1][1]]:add(-learning_rate, dweights[1][data[1][1]])
-                for i = 1, parameters["neg_sample_number"] do
-                    weights[2][data[2][i]]:add(-learning_rate, dweights[2][data[2][i]])
-                end
-                return gap
-            end
-        end
-
-    )
-
-    local function GenerateContexts(pos_context_id)
-        local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
-        contexts[1] = pos_context_id
-        local i = 0
-        while i < parameters["neg_sample_number"] do
-            local neg_context_id = table[torch.random(table_size)]
-            if neg_context_id ~= pos_context_id then
-                contexts[i + 2] = neg_context_id
-                i = i + 1
-            end
-        end
-        return contexts
-    end
-
-    local start = sys.clock()
-    local weights = module:parameters()
-
-    local lr = parameters["learning_rate"]
-    local cur_word_count = 0
-    for iter = 1, parameters["epochs"] do
-        local file = io.open(parameters["corpus"], "r")
-        local c = 0
-        local t_err = 0
-        for line in file:lines() do
-            local sentence = Split(line)
-            for i, word in ipairs(sentence) do
-                local word_idx = word2index[word]
-                if word_idx ~= nil then
-                    cur_word_count = cur_word_count + 1
-                    -- update learning rate
-                    if cur_word_count % 10000 == 0 and cur_word_count > 0 then
-                        lr = parameters["learning_rate"] * (1 - cur_word_count / (1 + iter * total_count))
-                        lr = math.max(parameters["min_learning_rate"], lr)
+            function pass()
+                local s = #data / parameters["thread_num"] * (__threadid - 1) + 1
+                local t = #data / parameters["thread_num"] * __threadid + 1
+                t = math.min(t, #data + 1)
+                local total_count = 0; count = 0; iter = 0
+                while true do
+                    -- update lr
+                    if total_count > 0 and total_count % 10000 == 0 then
+                        SkipGram.lr = parameters["learning_rate"] 
                     end
-                    -- The subsampling randomly discards frequent words while keeping the ranking same
-                    local ran = (1 + math.sqrt(vocabulary[word] / (parameters["sample"] * total_count)))
-                            * parameters["sample"] * total_count / vocabulary[word]
-                    print("ran " .. ran .. "vacabulary[word] " .. vocabulary[word])
-                    if ran < math.random() then 
+
+                    -- update iter
+                    if s + count >= t then
+                        count = 0
+                        iter = iter + 1
+                        if iter >= parameters["epochs"] then
+                            break
+                        end
+                    end
+
+                    -- extract 1000 words
+                    local buffer = {}
+                    while s + count < t and #buffer < 1000 do
+                        word = data[s + count]
+                        if vocabulary[word] ~= nil then
+                            local ran = (1 + math.sqrt(vocabulary[word] / (parameters["sample"] * total_count)))
+                                * parameters["sample"] * total_count / vocabulary[word]
+                            --print(string.format("%s\t%f", word, ran))
+                            if ran > math.random() then 
+                                buffer[#buffer + 1] = word
+                            end
+                        end 
+                        count = count + 1
+                        total_count = total_count + 1
+                    end
+                   
+                    -- train core
+                    for i, word in ipairs(buffer) do
+                        local wid = word2index[word]
                         local center_word = torch.IntTensor(1)
-                        center_word[1] = word_idx
                         local cur_window_size = torch.random(parameters["window_size"])
                         for j = i - cur_window_size, i + cur_window_size do
-                            local context = sentence[j]
-                            if context ~= nil and j ~= i then
-                                local context_id = word2index[context]
-                                if context_id ~= nil then
-                                    local contexts = GenerateContexts(context_id)
-                                    threads:addjob(
-                                        function()
-                                            return pass({center_word, contexts}, lr)
-                                        end,
-                                        function(gap)
-                                            t_err = t_err + gap
-                                        end
-                                    )
+                            if j >= 1 and j <= 1000 and j ~= i then
+                                local cid = word2index[buffer[j]]
+                                local contexts = GenerateContexts(wid, cid)
+                                local output = module:forward({center_word, contexts})
+                                local gap = criterion:forward(output, label)
+                                module:zeroGradParameters()
+                                module:backward(data, criterion:backward(output, label))
+                                weights[1][data[1][1]]:add(-SkipGram.lr, dweights[1][data[1][1]])
+                                for i = 1, parameters["neg_sample_number"] do
+                                    weights[2][data[2][i]]:add(-SkipGram.lr, dweights[2][data[2][i]])
                                 end
                             end
                         end
                     end
                 end
-                c = c + 1
-                if (c % 10000 == 0) then
-                    print(string.format(
-                        "Epoch[%d] Part[%d] AccumErrorRate[%f] LR[%f] Cost[%d second(s)]",
-                        iter, c / 100000, t_err / c, lr, sys.clock() - start))
-                    start = sys.clock()
-                end
             end
         end
-        file.close()
-        if (iter % parameters["save_epochs"] == 0) then
-            torch.save(parameters["model_dir"] .. "/skip_gram_epoch_" .. tostring(iter), module)
-        end
-        threads:synchronize()
+    )
+
+    local start = sys.clock()
+    local weights = module:parameters()
+    SkipGram.lr = parameters["learning_rate"]
+    for tid = 1, parameters["thread_num"] do
+        threads:addjob(
+            function()
+                return pass()
+            end
+        )
     end
+    threads:synchronize()
     threads:terminate()
 end
 
@@ -196,48 +206,11 @@ function SkipGram.Train()
     torch.save(parameters["model_dir"] .. "/index2word", index2word)
     local table, table_size
         = BuildTable(vocab, word2index, parameters["unigram_model_power"], parameters["table_size"])
+    local data = ReadData(parameters["corpus"])
+    print(#data)
     local skip_gram, criterion = ConstructModel(vocab_size, parameters["dim"])
-    ThreadedTrain(skip_gram, criterion, vocab, word2index, table, table_size, total_count, parameters)
-end
-
-function Normalize(word_vector)
-    local m = word_vector.weight:double()
-    local m_norm = torch.zeros(m:size())
-    for i = 1, m:size(1) do
-        m_norm[i] = m[i] / torch.norm(m[i])
-    end
-    return m_norm
-end
-
-function LoadModel(parameters)
-    if SkipGram.skip_gram == nil
-        or SkipGram.word2index == nil
-        or SkipGram.index2word == nil then
-        SkipGram.skip_gram = torch.load(parameters["model_dir"] .. "/skip_gram")
-        SkipGram.word2index = torch.load(parameters["model_dir"] .. "/word2index")
-        SkipGram.index2word = torch.load(parameters["model_dir"] .. "/index2word")
-        word_vector = SkipGram.skip_gram.modules[1].modules[1]
-        SkipGram.word_vector_norm = Normalize(word_vector)
-    end
-end
-
-function SkipGram.GetSimWords(w, k, parameters)
-    LoadModel(parameters)
-    if type(w) == "string" then
-        if SkipGram.word2index[w] == nil then
-            print(string.format("%s does not exit in Vocabulary", w))
-        else
-            w = SkipGram.word_vector_norm[SkipGram.word2index[w]]
-            local similary = torch.mv(SkipGram.word_vector_norm, w)
-            similary, idx = torch.sort(similary, 1, true)
-            local results = {}
-            for i = 1, k do
-                results[i] = {SkipGram.index2word[idx[i]], similary[i]}
-            end
-            return results
-        end
-    end
-    return nil
+    ThreadedTrain(skip_gram, criterion, vocab, word2index, table, table_size, total_count, data, parameters)
 end
 
 return SkipGram
+
