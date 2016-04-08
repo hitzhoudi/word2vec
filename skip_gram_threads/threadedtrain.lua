@@ -99,8 +99,6 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
     local lr = parameters["learning_rate"]
 
     local function GenerateContexts(wid, cid)
-        local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
-        contexts[1] = cid
         local i = 0
         while i < parameters["neg_sample_number"] do
             local nid = table[torch.random(table_size)]
@@ -121,12 +119,12 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
             local module = module:clone('weight', 'bais')
             local weights, dweights = module:parameters()
             local criterion = criterion:clone()
-            local label = torch.zeros(1 + parameters["neg_sample_number"])
-            label[1] = 1
+            local label = torch.zeros(1 + parameters["neg_sample_number"]); label[1] = 1
+            local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
 
             function pass()
-                local s = #data / parameters["thread_num"] * (__threadid - 1) + 1
-                local t = #data / parameters["thread_num"] * __threadid + 1
+                local s = math.floor(#data / parameters["thread_num"] * (__threadid - 1) + 1)
+                local t = math.floor(#data / parameters["thread_num"] * __threadid + 1)
                 t = math.min(t, #data + 1)
                 local total_count = 0; count = 0; iter = 0
                 
@@ -152,7 +150,6 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                         if vocabulary[word] ~= nil then
                             local ran = (1 + math.sqrt(vocabulary[word] / (parameters["sample"] * total_count)))
                                 * parameters["sample"] * total_count / vocabulary[word]
-                            --print(string.format("%s\t%f", word, ran))
                             if ran > math.random() then 
                                 buffer[#buffer + 1] = word
                             end
@@ -160,7 +157,6 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                         count = count + 1
                         total_count = total_count + 1
                     end
-
                     -- train core
                     local err = 0
                     for i, word in ipairs(buffer) do
@@ -169,16 +165,14 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                         center_word[1] = wid
                         local cur_window_size = torch.random(parameters["window_size"])
                         for j = i - cur_window_size, i + cur_window_size do
-                            if j >= 1 and j <= 1000 and j ~= i then
+                            if j >= 1 and j <= #buffer and j ~= i then
                                 local cid = word2index[buffer[j]]
-                                --local contexts = GenerateContexts(wid, cid)
-                                local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
                                 contexts[1] = cid
-                                local n = 0
-                                while n < parameters["neg_sample_number"] do
+                                local n = 1
+                                while n <= parameters["neg_sample_number"] do
                                     local nid = table[torch.random(table_size)]
                                     if nid ~= cid and nid ~= wid then
-                                        contexts[n + 2] = nid
+                                        contexts[n + 1] = nid
                                         n = n + 1
                                     end
                                 end
@@ -195,7 +189,7 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                             end
                         end
                     end
-                    print(err)
+                    print("error: " .. err)
                 end
             end
         end
@@ -203,7 +197,6 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
 
     local start = sys.clock()
     local weights = module:parameters()
-    --SkipGram.lr = parameters["learning_rate"]
     for tid = 1, parameters["thread_num"] do
         threads:addjob(
             function()
@@ -228,6 +221,49 @@ function SkipGram.Train()
     print(#data)
     local skip_gram, criterion = ConstructModel(vocab_size, parameters["dim"])
     ThreadedTrain(skip_gram, criterion, vocab, word2index, table, table_size, total_count, data, parameters)
+    torch.save(parameters["model_dir"] .. "/skip_gram", skip_gram)
+    torch.save(parameters["model_dir"] .. "/word2index", word2index)
+    torch.save(parameters["model_dir"] .. "/index2word", index2word)
+end
+
+function Normalize(word_vector)
+    local m = word_vector.weight:double()
+    local m_norm = torch.zeros(m:size())
+    for i = 1, m:size(1) do
+        m_norm[i] = m[i] / torch.norm(m[i])
+    end
+    return m_norm
+end
+
+function LoadModel(parameters)
+    if SkipGram.skip_gram == nil
+        or SkipGram.word2index == nil
+        or SkipGram.index2word == nil then
+        SkipGram.skip_gram = torch.load(parameters["model_dir"] .. "/skip_gram")
+        SkipGram.word2index = torch.load(parameters["model_dir"] .. "/word2index")
+        SkipGram.index2word = torch.load(parameters["model_dir"] .. "/index2word")
+        word_vector = SkipGram.skip_gram.modules[1].modules[1]
+        SkipGram.word_vector_norm = Normalize(word_vector)
+    end
+end
+
+function SkipGram.GetSimWords(w, k, parameters)
+    LoadModel(parameters)
+    if type(w) == "string" then
+        if SkipGram.word2index[w] == nil then
+            print(string.format("%s does not exit in Vocabulary", w))
+        else
+            w = SkipGram.word_vector_norm[SkipGram.word2index[w]]
+            local similary = torch.mv(SkipGram.word_vector_norm, w)
+            similary, idx = torch.sort(similary, 1, true)
+            local results = {}
+            for i = 1, k do
+                results[i] = {SkipGram.index2word[idx[i]], similary[i]}
+            end
+            return results
+        end
+    end
+    return nil
 end
 
 return SkipGram
