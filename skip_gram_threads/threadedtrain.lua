@@ -96,6 +96,8 @@ end
 local function ThreadedTrain(module, criterion, vocabulary, word2index, table, table_size, total_count, data, parameters)
     Threads.serialization('threads.sharedserialize')
 
+    local lr = parameters["learning_rate"]
+
     local function GenerateContexts(wid, cid)
         local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
         contexts[1] = cid
@@ -127,10 +129,11 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                 local t = #data / parameters["thread_num"] * __threadid + 1
                 t = math.min(t, #data + 1)
                 local total_count = 0; count = 0; iter = 0
+                
                 while true do
                     -- update lr
                     if total_count > 0 and total_count % 10000 == 0 then
-                        SkipGram.lr = parameters["learning_rate"] 
+                        lr = parameters["learning_rate"] 
                     end
 
                     -- update iter
@@ -157,27 +160,42 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                         count = count + 1
                         total_count = total_count + 1
                     end
-                   
+
                     -- train core
+                    local err = 0
                     for i, word in ipairs(buffer) do
                         local wid = word2index[word]
                         local center_word = torch.IntTensor(1)
+                        center_word[1] = wid
                         local cur_window_size = torch.random(parameters["window_size"])
                         for j = i - cur_window_size, i + cur_window_size do
                             if j >= 1 and j <= 1000 and j ~= i then
                                 local cid = word2index[buffer[j]]
-                                local contexts = GenerateContexts(wid, cid)
+                                --local contexts = GenerateContexts(wid, cid)
+                                local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
+                                contexts[1] = cid
+                                local n = 0
+                                while n < parameters["neg_sample_number"] do
+                                    local nid = table[torch.random(table_size)]
+                                    if nid ~= cid and nid ~= wid then
+                                        contexts[n + 2] = nid
+                                        n = n + 1
+                                    end
+                                end
+
                                 local output = module:forward({center_word, contexts})
                                 local gap = criterion:forward(output, label)
+                                err = err + gap
                                 module:zeroGradParameters()
-                                module:backward(data, criterion:backward(output, label))
-                                weights[1][data[1][1]]:add(-SkipGram.lr, dweights[1][data[1][1]])
-                                for i = 1, parameters["neg_sample_number"] do
-                                    weights[2][data[2][i]]:add(-SkipGram.lr, dweights[2][data[2][i]])
+                                module:backward({center_word, contexts}, criterion:backward(output, label))
+                                weights[1][center_word[1]]:add(-lr, dweights[1][center_word[1]])
+                                for k = 1, parameters["neg_sample_number"] do
+                                    weights[2][contexts[k]]:add(-lr, dweights[2][contexts[k]])
                                 end
                             end
                         end
                     end
+                    print(err)
                 end
             end
         end
@@ -185,7 +203,7 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
 
     local start = sys.clock()
     local weights = module:parameters()
-    SkipGram.lr = parameters["learning_rate"]
+    --SkipGram.lr = parameters["learning_rate"]
     for tid = 1, parameters["thread_num"] do
         threads:addjob(
             function()

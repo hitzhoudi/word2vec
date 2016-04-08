@@ -5,11 +5,11 @@ config.neg_sample_number = 5            -- maximum negative sample number
 config.learning_rate = 0.025            -- maximum learning rate
 config.min_learning_rate = 0.001        -- minimum learning rate
 config.dim = 100                        -- dimensionality of word embedding
-config.epochs = 10                      -- number of epochs
+config.epochs = 1                       -- number of epochs
 config.save_epochs = 1                  -- save rate
 config.model_dir = "./model"            -- model direct
 config.min_frequency = 10               -- minimum frequency
-config.thread_number = 2                -- thread number
+config.thread_number = 10               -- thread number
 config.mode = "train"                   -- mode: train or test
 config.sample = 1.0e-4
 
@@ -51,7 +51,7 @@ parameters["sample"] = config.sample
 --parameters["vocab"] = {}
 --parameters["word2index"] = {}
 --parameters["index2word"] = {}
-parameters["table_size"] = 1e8
+parameters["table_size"] = 1e7
 --parameters["table"] = {}
 parameters["unigram_model_power"] = 0.75
 
