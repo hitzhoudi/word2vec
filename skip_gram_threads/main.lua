@@ -2,13 +2,12 @@ config = {}
 config.corpus = "../data/corpus.txt"    -- input file
 config.window_size = 5                  -- maximum window size
 config.neg_sample_number = 5            -- maximum negative sample number
-config.learning_rate = 0.025            -- maximum learning rate
-config.min_learning_rate = 0.001        -- minimum learning rate
+config.lr = 0.025            -- maximum learning rate
 config.dim = 100                        -- dimensionality of word embedding
 config.epochs = 3                       -- number of epochs
 config.model_dir = "./model"            -- model direct
-config.min_frequency = 10               -- minimum frequency
-config.thread_number = 10               -- thread number
+config.min_frequency = 5                -- minimum frequency
+config.thread_number = 6                -- thread number
 config.mode = "train"                   -- mode: train or test
 config.sample = 1.0e-4
 
@@ -16,8 +15,7 @@ cmd = torch.CmdLine()
 cmd:option("-corpus", config.corpus)
 cmd:option("-window_size", config.window_size)
 cmd:option("-neg_sample_number", config.neg_sample_number)
-cmd:option("-learning_rate", config.learning_rate)
-cmd:option("-min_learning_rate", config.min_learning_rate)
+cmd:option("-lr", config.lr)
 cmd:option("-dim", config.dim)
 cmd:option("-epochs", config.epochs)
 cmd:option("-model_dir", config.model_dir)
@@ -36,8 +34,7 @@ parameters = {}
 parameters["corpus"] = config.corpus
 parameters["window_size"] = config.window_size
 parameters["neg_sample_number"] = config.neg_sample_number
-parameters["learning_rate"] = config.learning_rate
-parameters["min_learning_rate"] = config.min_learning_rate
+parameters["lr"] = config.lr
 parameters["dim"] = config.dim
 parameters["epochs"] = config.epochs
 parameters["model_dir"] = config.model_dir
@@ -52,6 +49,13 @@ if config.mode == "train" then
     SkipGram.Train()
 end
 
-if  config.mode == "test" then
-    print(SkipGram.GetSimWords("america", 100, parameters))
+if config.mode == "test" then
+    while (true) do
+        local word = io.read("*l")
+        print(word)
+        if word == "EXIT" then
+            break
+        end
+        print(SkipGram.GetSimWords(word, 100, parameters))
+    end
 end

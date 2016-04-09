@@ -4,8 +4,11 @@ local Threads = require 'threads'
 SkipGram = {}
 
 local function Split(line, sep)
+    if sep == nil then
+        sep = "%s"
+    end
     local t = {}; local i = 1
-    for word in string.gmatch(line, "%a+") do
+    for word in string.gmatch(line, "([^"..sep.."]+)") do
         t[i] = word; i = i + 1
     end
     return t
@@ -15,10 +18,8 @@ local function BuildVocabulary(corpus_path, min_frequency)
     local start = sys.clock()
     local file = io.open(corpus_path, "r")
     local vocab = {}
-    local total_count = 0
     for line in file:lines() do
         for _, word in ipairs(Split(line)) do
-            total_count = total_count + 1
             if vocab[word] == nil then
                 vocab[word] = 1
             else
@@ -27,19 +28,21 @@ local function BuildVocabulary(corpus_path, min_frequency)
         end
     end
     file.close()
+    local train_word_num = 0
     local word2index = {}
     local index2word = {}
     for word, count in pairs(vocab) do
         if count >= min_frequency then
             index2word[#index2word + 1] = word;
             word2index[word] = #index2word;
+            train_word_num = train_word_num + count
         else
             vocab[word] = nil
         end
     end
     local vocab_size = #index2word
     print(string.format("BuildVacabulary costs: %d second(s)", sys.clock() - start))
-    return vocab, vocab_size, word2index, index2word, total_count
+    return vocab, vocab_size, word2index, index2word, train_word_num
 end
 
 local function BuildTable(vocab, word2index, unigram_model_power, table_size)
@@ -93,23 +96,12 @@ local function ReadData(corpus_path)
     return data
 end
 
-local function ThreadedTrain(module, criterion, vocabulary, word2index, table, table_size, total_count, data, parameters)
+local function ThreadedTrain(module, criterion, vocabulary, word2index, table, table_size, train_word_num, data, parameters)
+    -- shared among threads
+    local lr = parameters["lr"]
+    local total_count, last_total_count = 0, 0
+
     Threads.serialization('threads.sharedserialize')
-
-    local lr = parameters["learning_rate"]
-
-    local function GenerateContexts(wid, cid)
-        local i = 0
-        while i < parameters["neg_sample_number"] do
-            local nid = table[torch.random(table_size)]
-            if nid ~= cid and nid ~= wid then
-                contexts[i + 2] = nid
-                i = i + 1
-            end
-        end
-        return contexts
-    end
-
     local threads = Threads(
         parameters["thread_num"],
         function()
@@ -126,12 +118,15 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                 local s = math.floor(#data / parameters["thread_num"] * (__threadid - 1) + 1)
                 local t = math.floor(#data / parameters["thread_num"] * __threadid + 1)
                 t = math.min(t, #data + 1)
-                local total_count = 0; count = 0; iter = 0
-                
+                local count, iter = 0, 0
+
                 while true do
                     -- update lr
-                    if total_count > 0 and total_count % 10000 == 0 then
-                        lr = parameters["learning_rate"] 
+                    if total_count - last_total_count >= 10000 then
+                        lr = parameters["lr"] * (1 - total_count / (parameters["epochs"] * train_word_num + 1))
+                        lr = math.max(lr, parameters["lr"] * 1e-3)
+                        print(string.format("thread id %d learning rate %f", __threadid, lr))
+                        last_total_count = total_count
                     end
 
                     -- update iter
@@ -148,8 +143,8 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                     while s + count < t and #buffer < 1000 do
                         word = data[s + count]
                         if vocabulary[word] ~= nil then
-                            local ran = (1 + math.sqrt(vocabulary[word] / (parameters["sample"] * total_count)))
-                                * parameters["sample"] * total_count / vocabulary[word]
+                            local ran = (1 + math.sqrt(vocabulary[word] / (parameters["sample"] * train_word_num)))
+                                * parameters["sample"] * train_word_num / vocabulary[word]
                             if ran > math.random() then 
                                 buffer[#buffer + 1] = word
                             end
@@ -189,7 +184,7 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
                             end
                         end
                     end
-                    print("error: " .. err)
+                    print(string.format("thread id %d, error %f", __threadid, err))
                 end
             end
         end
@@ -209,18 +204,17 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
 end
 
 function SkipGram.Train()
-    local vocab, vocab_size, word2index, index2word, total_count
+    local vocab, vocab_size, word2index, index2word, train_word_num
         = BuildVocabulary(parameters["corpus"], parameters["min_frequency"])
-    print("Total Count:" .. total_count .. " Vocabulary Size:" .. vocab_size)
+    print("Train Word Number:" .. train_word_num .. " Vocabulary Size:" .. vocab_size)
     os.execute("mkdir " .. parameters["model_dir"])
     torch.save(parameters["model_dir"] .. "/word2index", word2index)
     torch.save(parameters["model_dir"] .. "/index2word", index2word)
     local table, table_size
         = BuildTable(vocab, word2index, parameters["unigram_model_power"], parameters["table_size"])
     local data = ReadData(parameters["corpus"])
-    print(#data)
     local skip_gram, criterion = ConstructModel(vocab_size, parameters["dim"])
-    ThreadedTrain(skip_gram, criterion, vocab, word2index, table, table_size, total_count, data, parameters)
+    ThreadedTrain(skip_gram, criterion, vocab, word2index, table, table_size, train_word_num, data, parameters)
     torch.save(parameters["model_dir"] .. "/skip_gram", skip_gram)
     torch.save(parameters["model_dir"] .. "/word2index", word2index)
     torch.save(parameters["model_dir"] .. "/index2word", index2word)
