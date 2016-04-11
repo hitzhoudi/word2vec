@@ -47,9 +47,7 @@ parameters["unigram_model_power"] = 0.75
 local SkipGram = require('threadedtrain')
 if config.mode == "train" then
     SkipGram.Train()
-end
-
-if config.mode == "test" then
+elseif config.mode == "test" then
     while (true) do
         local word = io.read("*l")
         print(word)

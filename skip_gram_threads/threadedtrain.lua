@@ -98,8 +98,6 @@ end
 
 local function ThreadedTrain(module, criterion, vocabulary, word2index, table, table_size, train_word_num, data, parameters)
     -- shared among threads
-    local lr = parameters["lr"]
-    local total_count, last_total_count = 0, 0
 
     Threads.serialization('threads.sharedserialize')
     local threads = Threads(
@@ -108,22 +106,24 @@ local function ThreadedTrain(module, criterion, vocabulary, word2index, table, t
             require 'nn'
         end,
         function()
-            local module = module:clone('weight', 'bais')
+            local module = module:clone('weight', 'bias')
             local weights, dweights = module:parameters()
             local criterion = criterion:clone()
             local label = torch.zeros(1 + parameters["neg_sample_number"]); label[1] = 1
             local contexts = torch.IntTensor(1 + parameters["neg_sample_number"])
+            local lr = parameters["lr"]
 
             function pass()
                 local s = math.floor(#data / parameters["thread_num"] * (__threadid - 1) + 1)
                 local t = math.floor(#data / parameters["thread_num"] * __threadid + 1)
                 t = math.min(t, #data + 1)
                 local count, iter = 0, 0
+                local total_count, last_total_count = 0, 0
 
                 while true do
                     -- update lr
                     if total_count - last_total_count >= 10000 then
-                        lr = parameters["lr"] * (1 - total_count / (parameters["epochs"] * train_word_num + 1))
+                        lr = parameters["lr"] * (1 - total_count / (parameters["epochs"] * (t - s) + 1))
                         lr = math.max(lr, parameters["lr"] * 1e-3)
                         print(string.format("thread id %d learning rate %f", __threadid, lr))
                         last_total_count = total_count
